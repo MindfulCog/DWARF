@@ -56,23 +56,23 @@ class RegionalGeoSim(DWARFTidalSimulator):
         moon_pos, sun_pos = get_positions_utc(*utc)
 
         for i in range(self.num_tracers):
-            if not np.all(np.isfinite(self.positions[:, i])):
-                continue  # skip corrupted tracer
             tracer = self.positions[:, i]
 
             # Moon force
             r_moon = moon_pos - tracer
-            r_moon_mag = np.linalg.norm(r_moon)
+            r_moon_mag = np.clip(np.linalg.norm(r_moon), 1e-3, 1e10)
             alpha_moon = 1.0 + (r_moon_mag > 2.5e7) * 1.0  # transition alpha: near 1.0, far 2.0
             r_moon_mag_alpha = r_moon_mag**alpha_moon + 1e-6
             moon_force = self.moon_mass / r_moon_mag_alpha * (r_moon / (r_moon_mag + 1e-6))
+            moon_force = np.nan_to_num(moon_force)
 
             # Sun force
             r_sun = sun_pos - tracer
-            r_sun_mag = np.linalg.norm(r_sun)
+            r_sun_mag = np.clip(np.linalg.norm(r_sun), 1e-3, 1e10)
             alpha_sun = 1.0 + (r_sun_mag > 2.5e8) * 1.0  # sun's far field triggers higher alpha
             r_sun_mag_alpha = r_sun_mag**alpha_sun + 1e-6
             sun_force = self.sun_mass / r_sun_mag_alpha * (r_sun / (r_sun_mag + 1e-6))
+            sun_force = np.nan_to_num(sun_force)
 
             # Net force
             total_force = 1e-7 * (moon_force + sun_force)
@@ -90,6 +90,7 @@ class RegionalGeoSim(DWARFTidalSimulator):
         self.wake_decay_alpha = 2.0  # default to inviscid
         resistance_force = -1e-8 * (self.positions[:, i] - self.tracers[:, i])
         self.velocities[:, i] += total_force + nonlinear_drag + coriolis + resistance_force
+        self.velocities[:, i] = np.clip(self.velocities[:, i], -1000, 1000)
         self.positions[:, i] += self.velocities[:, i]
 
         disp = np.linalg.norm(self.positions - self.tracers, axis=0)
@@ -108,7 +109,7 @@ def run_real_geo_sim():
     plot_displacement(sim, filename="real_geo_displacement.png")
     plot_snapshot(sim, filename="real_geo_snapshot.png")
     export_all_3d(sim, output_dir="output/3d/real_geo")
-    log_dynamics(sim, filename="real_geo_dynamics_v07.csv")
+    log_dynamics(sim, filename="real_geo_dynamics.csv")
     print("✅ Real-Time Ephemeris Simulation Complete.")
 if __name__ == "__main__":
     run_real_geo_sim()
