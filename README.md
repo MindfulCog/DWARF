@@ -9,7 +9,7 @@ Current Tasks:
  - Seeing coherent, stable, repeatable entrainment, the very mechanism that makes real-world orbits possible, without invoking Newton or Einstein. - currently running and working as predicted.
 
 -------------------------------------------------------------------
-
+- Getting cupy running on my local machine to utilize GPU for faster sims - Started
 - Building a fluid simulator - done
 - Building an INFLOW simulator - Started, tested and results are awesome (will upload soon)
 - Overlaying findings between them
