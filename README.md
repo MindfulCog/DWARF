@@ -3,6 +3,7 @@ Dynamic Wake Accretion in Relativistic Fluids Theory
 This is a repository to keep my work safe, as I try to push my theory to the limits.
 
 Current Tasks
+
 ***Currently running a simulation that is:
  - Building a system where gravity is emergent, not imposed.
  - Seeing coherent, stable, repeatable entrainment — the very mechanism that makes real-world orbits possible — without invoking Newton or Einstein. *** - currently running and working as predicted.
