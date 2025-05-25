@@ -7,9 +7,10 @@ Current Tasks:
 Currently running a simulation that is:
  - Building a system where gravity is emergent, not imposed.
  - Seeing coherent, stable, repeatable entrainment, the very mechanism that makes real-world orbits possible, without invoking Newton or Einstein. - currently running and working as predicted.
+ - Optimizing with GPU (CUDA)
 
 -------------------------------------------------------------------
-- Getting cupy running on my local machine to utilize GPU for faster sims - Started
+- Getting cupy running on my local machine to utilize GPU for faster sims - Done
 - Building a fluid simulator - done
 - Building an INFLOW simulator - Started, tested and results are awesome (will upload soon)
 - Overlaying findings between them
