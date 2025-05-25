@@ -6,7 +6,7 @@ Current Tasks
 
 ***Currently running a simulation that is:
  - Building a system where gravity is emergent, not imposed.
- - Seeing coherent, stable, repeatable entrainment — the very mechanism that makes real-world orbits possible — without invoking Newton or Einstein. *** - currently running and working as predicted.
+ - Seeing coherent, stable, repeatable entrainment, the very mechanism that makes real-world orbits possible, without invoking Newton or Einstein. *** - currently running and working as predicted.
 
 
 
