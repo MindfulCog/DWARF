@@ -14,9 +14,9 @@ Currently running a simulation that is:
 -------------------------------------------------------------------
 - Getting cupy running on my local machine to utilize GPU for faster sims - Done
 - Building a fluid simulator - done
+  - Fluid Simulator upgraded to a cupy model with all math findings from INFLOW, Solar, and Tidal sims.  - Testing now.
 - Building an INFLOW simulator - Started, tested and results are awesome (will upload soon)
 - Overlaying findings between them
 - Building an Orbital Mechanics Simulator once we have mechanics from Fluid and INFLOW - almost done, but not with INFLOW yet
-- Once we have this math, I will  then update my Tidal Simulator from v0.7 -> v0.8 with the added mechanics.
-
+- Tidal Simulator updated with math findings, almost producing perfect real  world results using DWARF as primary principle
 ---Side thoughts, considering merging DWARF_V1.2 and v1.3 and making it a new paper, or just leaving them as Git Documents, and moving into my new findings Via all the simulations I have been running---
