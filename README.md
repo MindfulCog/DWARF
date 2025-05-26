@@ -14,7 +14,16 @@ Currently running a simulation that is:
 -------------------------------------------------------------------
 - Getting cupy running on my local machine to utilize GPU for faster sims - Done
 - Building a fluid simulator - done
-  - Fluid Simulator upgraded to a cupy model with all math findings from INFLOW, Solar, and Tidal sims.  - Testing now.
+  - Fluid Simulator upgraded to a cupy model with all math findings from INFLOW, Solar, and Tidal sims.
+  - 2000 step Vortex sim Ran with DWARF as the model
+   - DWARF’s ring radius aligns tightly with the Lamb-Oseen model.
+   - DWARF Derives Viscous Behavior Without Traditional Navier-Stokes Terms
+   - Wake memory introduces a novel, tunable mechanism for field-aware dissipation in fluids — this has no analogue in standard physics.
+   - Stability can emerge from saturation
+   - Topological fluid behavior can emerge from pure flow entrainment
+   - DWARF’s nonlinearity introduces natural gradient saturation, allowing stable computation where classic solvers struggle.
+ 
+  - 
 - Building an INFLOW simulator - Started, tested and results are awesome (will upload soon)
 - Overlaying findings between them
 - Building an Orbital Mechanics Simulator once we have mechanics from Fluid and INFLOW - almost done, but not with INFLOW yet
