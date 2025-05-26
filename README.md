@@ -13,7 +13,7 @@ Currently running a simulation that is:
 
 -------------------------------------------------------------------
 - Getting cupy running on my local machine to utilize GPU for faster sims - Done
-- Building a fluid simulator - done
+- Building a fluid simulator - (starting to look like fluid engine)
   - Fluid Simulator upgraded to a cupy model with all math findings from INFLOW, Solar, and Tidal sims.
   - 2000 step Vortex sim Ran with DWARF as the model
    - DWARF’s ring radius aligns tightly with the Lamb-Oseen model.
