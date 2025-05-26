@@ -28,4 +28,6 @@ Currently running a simulation that is:
 - Overlaying findings between them
 - Building an Orbital Mechanics Simulator once we have mechanics from Fluid and INFLOW - almost done, but not with INFLOW yet
 - Tidal Simulator updated with math findings, almost producing perfect real  world results using DWARF as primary principle
+
+  ---------------------------------------------------------------------
 ---Side thoughts, considering merging DWARF_V1.2 and v1.3 and making it a new paper, or just leaving them as Git Documents, and moving into my new findings Via all the simulations I have been running---
