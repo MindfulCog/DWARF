@@ -3,6 +3,10 @@ Dynamic Wake Accretion in Relativistic Fluids Theory
 This is a repository to keep my work safe, as I try to push my theory to the limits.
 
 Current Tasks:
+Tidal sim is almost perfect, theory has been holding up at quantum, local, cosmic levels under rigorus amounts of simulations, derving new formulas naturally, producing known laws naturally, currrently running a molecular level simulator and I have almost perfectly naturally mimmiced a hydrogen atom, and a oxygen atom locked perfectly with their electrons naturally through this theory, currently testing around my findings to see if it's just a fluke or error, after it is proven across multiple atom's  I will begin seeinig if I can make them bond naturally, from what I have seen so far across the board, they should. If they do, will write paper on all the findings bridging the gap from quantum to cosmic.
+
+
+--------------------------------------------------------------------
 
 Currently running a simulation that is:
  - Building a system where gravity is emergent, not imposed.
@@ -10,6 +14,7 @@ Currently running a simulation that is:
  - Optimizing with GPU (CUDA) - DONE
  - Results are incredible so far, Next step a full emergent cosmogenesis engine?
  - Paper on results to begin shortly
+
 
 -------------------------------------------------------------------
 - Getting cupy running on my local machine to utilize GPU for faster sims - Done
