@@ -1,0 +1,28 @@
+"""
+Simulation configuration for DWARF Simulator.
+Generated on 2025-05-30 10:55:00
+"""
+import numpy as np
+
+GRID_SIZE = 256
+
+class SimulationConfig:
+    """
+    Configuration parameters for the DWARF simulation.
+    """
+    def __init__(self):
+        self.time_step = 0.001
+        self.max_steps = 20000
+        self.viz_interval = 30
+        self.global_drag = 0.985
+        self.saturation_limit = 15.0
+        self.memory_decay = 0.9998
+        self.num_protons = 1
+        self.num_electrons = 1
+        self.num_neutrons = 0
+        self.proton_spin = 133000.0
+        self.electron_spin = -2100000000.0
+        self.neutron_spin = 0
+        self.initial_electron_position = [1.0, 1.0]
+        self.initial_electron_velocity = [0.0, 0.0]
+        self.initial_proton_position = [2.0, 2.0]
