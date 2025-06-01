@@ -1,0 +1,5 @@
+DWARF Physics Simulation Session
+Start time: 2025-05-31 21:49:10
+Session ID: 20250531_214910
+GPU: NVIDIA GeForce RTX 3060
+GPU Memory: 10.95 GB free / 12.00 GB total

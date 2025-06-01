@@ -3,6 +3,8 @@ import numpy as np
 import cupy as cp
 import argparse
 from vispy import app
+
+# Fixed imports
 from dwarf_math import DWARFMath
 from dwarf_particle import Particle, Proton, Electron, Neutron, ParticleSystem
 from adaptive_fluid_grid import AdaptiveFluidGrid  # Use adaptive grid
@@ -242,7 +244,27 @@ if __name__ == "__main__":
     print("  1-5: toggle visualization overlays")
     print("  x/y/z: set spin direction of selected particle")
     
+    # Force a supported backend
+    try:
+        # Try different backends
+        backends_to_try = ['pyqt5', 'pyglet', 'glfw']
+        for backend in backends_to_try:
+            try:
+                print(f"Trying backend: {backend}")
+                app.use_app(backend)
+                print(f"Using backend: {backend}")
+                break
+            except Exception as e:
+                print(f"Failed to use {backend}: {str(e)}")
+    except Exception as e:
+        print(f"Warning: Could not set preferred backend: {str(e)}")
+    
     # Create and run the simulator
     simulator = DWARFSimulator(config)
     simulator.initialize()
+    
+    # Show the canvas explicitly
+    simulator.visualizer.canvas.show()
+    
+    # Run the application
     simulator.run()

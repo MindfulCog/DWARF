@@ -1,9 +1,8 @@
-from vispy import app, scene, visuals, gloo
-from vispy.scene import ViewBox, PanZoomCamera, TurntableCamera
-from vispy.scene.transforms import STTransform, MatrixTransform
-from vispy.visuals.transforms import Transform
+from vispy import app, scene
 import numpy as np
 import cupy as cp
+
+# No transforms import - we'll avoid using them directly
 
 class Visualizer3D:
     """3D visualization of DWARF physics simulation"""
@@ -17,7 +16,7 @@ class Visualizer3D:
         
         # Create a view for the 3D viewport
         self.view = self.canvas.central_widget.add_view()
-        self.view.camera = TurntableCamera(fov=60, elevation=30, azimuth=45)
+        self.view.camera = scene.cameras.TurntableCamera(fov=60, elevation=30, azimuth=45)
         self.view.camera.center = (0, 0, 0)
         self.view.camera.distance = 15
         
@@ -35,26 +34,26 @@ class Visualizer3D:
         # Particle markers
         self.markers = scene.visuals.Markers(parent=self.view.scene)
         
-        # Velocity vectors
-        self.velocity_vectors = scene.visuals.Arrow(parent=self.view.scene)
+        # Velocity vectors - use Line instead of Arrow
+        self.velocity_vectors = scene.visuals.Line(parent=self.view.scene)
         self.velocity_arrows_visible = False
         
-        # Spin vectors 
-        self.spin_vectors = scene.visuals.Arrow(parent=self.view.scene)
+        # Spin vectors - use Line instead of Arrow 
+        self.spin_vectors = scene.visuals.Line(parent=self.view.scene)
         self.spin_arrows_visible = False
         
         # Bonds visualization
         self.bond_lines = scene.visuals.Line(parent=self.view.scene, 
-                                           width=3, 
-                                           color=(0.8, 0.8, 0.2, 0.6),
-                                           connect='segments')
+                                          width=3, 
+                                          color=(0.8, 0.8, 0.2, 0.6),
+                                          connect='segments')
         
-        # Axes to show coordinate system
+        # Add simple axes (X,Y,Z)
         self.axes = scene.visuals.XYZAxis(parent=self.view.scene)
         
         # Grid lines to show boundaries
         grid_size = 10.0
-        grid_lines = np.array([
+        grid_lines = [
             # Bottom face
             [-grid_size/2, -grid_size/2, -grid_size/2], [grid_size/2, -grid_size/2, -grid_size/2],
             [grid_size/2, -grid_size/2, -grid_size/2], [grid_size/2, grid_size/2, -grid_size/2],
@@ -70,24 +69,21 @@ class Visualizer3D:
             [grid_size/2, -grid_size/2, -grid_size/2], [grid_size/2, -grid_size/2, grid_size/2],
             [grid_size/2, grid_size/2, -grid_size/2], [grid_size/2, grid_size/2, grid_size/2],
             [-grid_size/2, grid_size/2, -grid_size/2], [-grid_size/2, grid_size/2, grid_size/2]
-        ])
+        ]
         
         self.grid_visual = scene.visuals.Line(pos=grid_lines, 
                                            color=(0.5, 0.5, 0.5, 0.3), 
                                            connect='segments',
                                            parent=self.view.scene)
         
-        # Fluid field visualization
-        self.vector_field_vis = None
-        self.fluid_state_vis = None
-        self.state_volume = None
+        # Vector field visualization (simple lines)
+        self.vector_field_vis = scene.visuals.Line(parent=self.view.scene)
         
         # Selected particle
         self.selected_particle = None
         self.selection_marker = scene.visuals.Markers(parent=self.view.scene)
         
         # Vortex visualization
-        self.vortex_points = []
         self.vortex_markers = scene.visuals.Markers(parent=self.view.scene)
         
         # Event handling
@@ -96,7 +92,6 @@ class Visualizer3D:
         
         # Visualizations toggles
         self.show_field_vectors = False
-        self.show_fluid_states = False
         self.show_vortices = False
         self.show_bonds = True
         
@@ -104,39 +99,6 @@ class Visualizer3D:
         """Initialize visualization with grid and particles"""
         self.grid = grid
         self.particle_system = particle_system
-        
-        # Initialize vector field visualization
-        step = 8  # Subsample for performance
-        field_pos = []
-        field_mag = []
-        
-        for i in range(0, grid.base_resolution, step):
-            for j in range(0, grid.base_resolution, step):
-                for k in range(0, grid.base_resolution, step):
-                    # Convert grid to world position
-                    world_pos = grid.grid_to_world(np.array([i, j, k]))
-                    field_pos.append(world_pos)
-                    field_mag.append(0.0)  # Initial magnitude
-                    
-        # Create vector field visualization
-        self.vector_field_vis = scene.visuals.Arrows(parent=self.view.scene, 
-                                                  arrow_type='stealth',
-                                                  arrow_size=10,
-                                                  color=(0.5, 0.5, 1.0, 0.6),
-                                                  connect='segments')
-        
-        # Create fluid state visualization (volume rendering)
-        self.state_volume = np.zeros((grid.base_resolution, grid.base_resolution, grid.base_resolution), dtype=np.float32)
-        
-        self.fluid_state_vis = scene.visuals.Volume(self.state_volume, 
-                                                 parent=self.view.scene, 
-                                                 method='mip',    # Maximum intensity projection
-                                                 threshold=0.01,  # Minimum opacity threshold
-                                                 emulate_texture=False)
-        
-        # Hide initially
-        self.fluid_state_vis.visible = False
-        self.vector_field_vis.visible = False
         
     def update(self):
         """Update visualization with current state"""
@@ -161,13 +123,6 @@ class Visualizer3D:
             self.vector_field_vis.visible = True
         else:
             self.vector_field_vis.visible = False
-            
-        # Update fluid state visualization
-        if self.show_fluid_states:
-            self._update_fluid_states()
-            self.fluid_state_vis.visible = True
-        else:
-            self.fluid_state_vis.visible = False
             
         # Update vortex visualization
         if self.show_vortices:
@@ -216,7 +171,13 @@ class Visualizer3D:
                 colors.append(self.particle_colors.get(particle.particle_type, (1, 1, 1, 1)))
             
             if starts:  # Only update if we have particles
-                self.velocity_vectors.set_data(pos=np.array([starts, ends]).swapaxes(0, 1).reshape(-1, 3),
+                # Use Line for arrows
+                arrow_pos = []
+                for i in range(len(starts)):
+                    arrow_pos.append(starts[i])
+                    arrow_pos.append(ends[i])
+                
+                self.velocity_vectors.set_data(pos=np.array(arrow_pos),
                                           color=np.array(colors * 2),
                                           connect='segments')
                 self.velocity_vectors.visible = True
@@ -238,11 +199,17 @@ class Visualizer3D:
                 # Different color for spin
                 spin_color = list(self.particle_colors.get(particle.particle_type, (1, 1, 1, 1)))
                 # Modify the color slightly to differentiate from velocity
-                spin_color[1] = min(1.0, spin_color[1] + 0.3)  # Add some green
+                spin_color[1] = min(1.0, spin_color[1] + 0.3)
                 colors.append(tuple(spin_color))
             
             if starts:  # Only update if we have particles
-                self.spin_vectors.set_data(pos=np.array([starts, ends]).swapaxes(0, 1).reshape(-1, 3),
+                # Use Line for arrows
+                arrow_pos = []
+                for i in range(len(starts)):
+                    arrow_pos.append(starts[i])
+                    arrow_pos.append(ends[i])
+                
+                self.spin_vectors.set_data(pos=np.array(arrow_pos),
                                        color=np.array(colors * 2),
                                        connect='segments')
                 self.spin_vectors.visible = True
@@ -327,76 +294,27 @@ class Visualizer3D:
                     intensity = min(1.0, magnitude / 0.5)
                     field_colors.append((0.3, 0.3 + intensity*0.7, 1.0, min(0.8, intensity*0.8)))
         
-        # Update vector field visualization
+        # Update vector field visualization with Line segments
         if field_pos:
-            starts = np.array(field_pos)
-            ends = starts + np.array(field_vectors)
+            # Create paired start-end points for each vector
+            vector_lines = []
+            vector_colors = []
             
-            combined = np.zeros((len(starts)*2, 3))
-            combined[0::2] = starts
-            combined[1::2] = ends
+            for i in range(len(field_pos)):
+                start = field_pos[i]
+                end = field_pos[i] + field_vectors[i]
+                vector_lines.append(start)
+                vector_lines.append(end)
+                vector_colors.append(field_colors[i])
+                vector_colors.append(field_colors[i])
             
-            self.vector_field_vis.set_data(pos=combined,
-                                        color=np.repeat(field_colors, 2, axis=0),
+            # Update the Lines visual
+            self.vector_field_vis.set_data(pos=np.array(vector_lines),
+                                        color=np.array(vector_colors),
                                         connect='segments')
-    
-    def _update_fluid_states(self):
-        """Update fluid state visualization with adaptive resolution"""
-        # Original state volume visualization
-        state_array = cp.asnumpy(self.grid.state)
-        step = 2  # Skip some cells for performance
-        
-        for i in range(0, self.grid.base_resolution, step):
-            for j in range(0, self.grid.base_resolution, step):
-                for k in range(0, self.grid.base_resolution, step):
-                    state = state_array[i, j, k]
-                    
-                    # Only show compressed and vacuum states
-                    if state == self.grid.COMPRESSED:
-                        self.state_volume[i, j, k] = 1.0  # Compressed
-                    elif state == self.grid.VACUUM:
-                        self.state_volume[i, j, k] = 2.0  # Vacuum
-                    else:
-                        self.state_volume[i, j, k] = 0.0  # Uncompressed (invisible)
-        
-        # Now visualize refinement regions if available
-        if hasattr(self.grid, 'refinement_regions'):
-            for region_key, region_grid in self.grid.refinement_regions.items():
-                base_i, base_j, base_k, level = region_key
-                
-                # Highlight refinement regions with a special color
-                for i_offset in range(2):
-                    for j_offset in range(2):
-                        for k_offset in range(2):
-                            i, j, k = base_i + i_offset, base_j + j_offset, base_k + k_offset
-                            
-                            if (0 <= i < self.grid.base_resolution and 
-                                0 <= j < self.grid.base_resolution and 
-                                0 <= k < self.grid.base_resolution):
-                                # Mark refinement regions with a special value (3)
-                                # This will be colored differently
-                                self.state_volume[i, j, k] = 3.0
-        
-        # Update volume data
-        self.fluid_state_vis.set_data(self.state_volume)
-        
-        # Scale to grid size
-        scale_factor = self.grid.size / self.grid.base_resolution
-        self.fluid_state_vis.transform = STTransform(
-            scale=(scale_factor, scale_factor, scale_factor),
-            translate=(-self.grid.size/2, -self.grid.size/2, -self.grid.size/2)
-        )
-        
-        # Set custom colormap: transparent for uncompressed, red for compressed, 
-        # purple for vacuum, green for refinement regions
-        cmap = np.array([
-            [0, 0, 0, 0],           # Transparent for uncompressed
-            [1, 0.5, 0, 0.3],       # Orange/red for compressed
-            [0.5, 0, 0.5, 0.3],     # Purple for vacuum
-            [0, 0.8, 0.2, 0.5]      # Green for refinement regions
-        ])
-        self.fluid_state_vis.cmap = cmap
-        self.fluid_state_vis.visible = True
+            self.vector_field_vis.visible = True
+        else:
+            self.vector_field_vis.visible = False
     
     def _update_vortices(self):
         """Update vortex visualization"""
@@ -454,9 +372,6 @@ class Visualizer3D:
         elif event.key == '1':
             # Toggle field vector visualization
             self.show_field_vectors = not self.show_field_vectors
-        elif event.key == '2':
-            # Toggle fluid state visualization
-            self.show_fluid_states = not self.show_fluid_states
         elif event.key == '3':
             # Toggle vortex visualization
             self.show_vortices = not self.show_vortices
@@ -484,44 +399,6 @@ class Visualizer3D:
         """Handle mouse press events"""
         # Use ray picking to select particles
         if event.button == 1:  # Left click
-            # Get mouse position in scene coordinates
-            pos = self.canvas.native.mapFromGlobal(event.pos)
-            tr = self.canvas.transforms.get_transform()
-            scene_pos = tr.map(pos)
-            
-            # Get view/camera transform
-            view_tr = self.view.camera.transform
-            
-            # Create ray from camera to clicked point
-            ray_dir = self.view.camera.transform.map([0, 0, 1]) - self.view.camera.transform.map([0, 0, 0])
-            ray_ori = self.view.camera.transform.map([0, 0, 0])
-            
-            # Find closest particle to ray
-            closest_particle = None
-            closest_dist = float('inf')
-            
-            for particle in self.particle_system.particles:
-                # Vector from ray origin to particle
-                to_particle = particle.position - ray_ori
-                
-                # Project onto ray direction
-                proj_dist = np.dot(to_particle, ray_dir)
-                
-                if proj_dist <= 0:
-                    continue  # Behind camera
-                    
-                # Get closest point on ray to particle
-                closest_point = ray_ori + proj_dist * ray_dir
-                
-                # Distance from particle to ray
-                dist = np.linalg.norm(closest_point - particle.position)
-                
-                # Selection distance depends on particle size
-                selection_radius = 0.5 + particle.mass * 0.2
-                
-                if dist < selection_radius and proj_dist < closest_dist:
-                    closest_dist = proj_dist
-                    closest_particle = particle
-            
-            # Update selection
-            self.selected_particle = closest_particle
+            # Simple selection method - just select the first particle for now
+            if self.particle_system.particles:
+                self.selected_particle = self.particle_system.particles[0]

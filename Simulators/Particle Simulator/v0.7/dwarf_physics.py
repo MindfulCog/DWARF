@@ -3,183 +3,149 @@ import cupy as cp
 from dwarf_math import DWARFMath
 
 class DWARFPhysics:
-    """Physics engine implementing DWARF theory interactions"""
+    """Physics engine for DWARF particle simulator"""
     
     def __init__(self, grid, time_step=0.01):
         self.grid = grid
         self.time_step = time_step
         self.dwarf_math = DWARFMath()
-        self.bond_detector = None  # Will be initialized later
-        
-    def initialize(self):
-        """Initialize physics engine"""
-        self.dwarf_math.initialize_memory_field(self.grid.resolution)
+        self.bond_detector = None
         
     def set_bond_detector(self, bond_detector):
-        """Set the bond detector instance"""
         self.bond_detector = bond_detector
         
-    def calculate_particle_interactions(self, particles):
-        """Calculate all particle-particle interactions"""
-        n = len(particles)
+    def initialize(self):
+        """Initialize the physics engine"""
+        # Initialize DWARF math components
+        # FIXED: use base_resolution instead of resolution
+        self.dwarf_math.initialize_memory_field(self.grid.base_resolution)
         
-        # Reset forces
-        for particle in particles:
-            particle.reset_forces()
-        
-        # Calculate pairwise interactions
-        for i in range(n):
-            for j in range(i+1, n):
-                p1, p2 = particles[i], particles[j]
-                
-                # Skip interactions between bonded particles (handled differently)
-                if p2 in p1.bonded_with:
-                    continue
-                
-                # Calculate DWARF force
-                force = self.dwarf_math.calculate_force(p1, p2)
-                
-                # Apply Newton's third law
-                p1.apply_force(force)
-                p2.apply_force(-force)
-                
-                # Add specific interaction effects based on particle types
-                self.apply_specific_interaction(p1, p2)
-    
-    def apply_specific_interaction(self, p1, p2):
-        """Apply specific interactions based on particle types"""
-        # Determine interaction type
-        if p1.particle_type == "proton" and p2.particle_type == "electron":
-            self.proton_electron_interaction(p1, p2)
-        elif p1.particle_type == "electron" and p2.particle_type == "proton":
-            self.proton_electron_interaction(p2, p1)
-        elif p1.particle_type == "proton" and p2.particle_type == "neutron":
-            self.proton_neutron_interaction(p1, p2)
-        elif p1.particle_type == "neutron" and p2.particle_type == "proton":
-            self.proton_neutron_interaction(p2, p1)
-        elif p1.particle_type == "proton" and p2.particle_type == "proton":
-            self.proton_proton_interaction(p1, p2)
-        elif p1.particle_type == "electron" and p2.particle_type == "electron":
-            self.electron_electron_interaction(p1, p2)
-        elif p1.particle_type == "neutron" and p2.particle_type == "neutron":
-            self.neutron_neutron_interaction(p1, p2)
-        elif (p1.particle_type == "electron" and p2.particle_type == "neutron") or \
-             (p1.particle_type == "neutron" and p2.particle_type == "electron"):
-            electron = p1 if p1.particle_type == "electron" else p2
-            neutron = p2 if p2.particle_type == "neutron" else p1
-            self.electron_neutron_interaction(electron, neutron)
-    
-    # All particle interaction functions remain the same (CPU-side computation)
-    def proton_electron_interaction(self, proton, electron):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-        
-    def proton_neutron_interaction(self, proton, neutron):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-        
-    def proton_proton_interaction(self, p1, p2):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-        
-    def electron_electron_interaction(self, e1, e2):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-        
-    def neutron_neutron_interaction(self, n1, n2):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-        
-    def electron_neutron_interaction(self, electron, neutron):
-        # (Implementation remains unchanged - using NumPy)
-        pass
-    
-    def apply_field_forces(self, particles):
-        """Apply forces from the memory field to particles"""
-        for particle in particles:
-            # Calculate memory field force
-            memory_force = self.dwarf_math.calculate_memory_field_force(particle, self.grid)
-            particle.apply_force(memory_force)
-            
-            # Apply torque based on memory field curl
-            memory_torque = self.dwarf_math.calculate_memory_torque(particle, self.grid)
-            particle.apply_torque(memory_torque)
-    
-    def update_bonded_particles(self, particles):
-        """Special physics for bonded particles (atoms)"""
-        for p1 in particles:
-            for p2 in p1.bonded_with:
-                if p1.particle_type == "proton" and p2.particle_type == "electron":
-                    proton, electron = p1, p2
-                elif p1.particle_type == "electron" and p2.particle_type == "proton":
-                    proton, electron = p2, p1
-                else:
-                    continue  # Not a proton-electron pair
-                    
-                # Calculate relative position and distance
-                r_vec = electron.position - proton.position
-                distance = np.linalg.norm(r_vec)
-                
-                if distance < 1e-10:
-                    continue
-                    
-                # Unit direction vector
-                r_hat = r_vec / distance
-                
-                # Keep electron at optimal orbital distance
-                optimal_distance = 1.0  # Bohr radius
-                
-                # Force to maintain orbital distance
-                binding_strength = 0.1
-                distance_error = distance - optimal_distance
-                binding_force = binding_strength * distance_error * r_hat
-                
-                # Apply binding force
-                electron.apply_force(-binding_force)
-                proton.apply_force(binding_force)
-                
-                # Maintain orbital velocity
-                rel_vel = electron.velocity - proton.velocity
-                radial_vel = np.dot(rel_vel, r_hat) * r_hat
-                
-                # Damping force to reduce radial velocity (keeps orbit circular)
-                damping_strength = 0.05
-                damping_force = -damping_strength * radial_vel
-                
-                electron.apply_force(damping_force)
-                proton.apply_force(-damping_force)
-    
-    def integrate_motion(self, particles, dt):
-        """Integrate particle motion using semi-implicit Euler"""
-        for particle in particles:
-            # First update velocity based on force
-            particle.update_velocity(dt)
-            
-            # Then update position based on new velocity
-            particle.update_position(dt)
-            
-            # Update spin based on torque
-            particle.update_spin(dt)
-    
     def update(self, particle_system, dt):
-        """Main physics update function"""
-        particles = particle_system.particles
+        """Update physics for all particles"""
+        # First update memory field from particles
+        self.dwarf_math.update_memory_field(particle_system.particles, self.grid, dt)
         
-        # Update memory field
-        self.dwarf_math.update_memory_field(particles, self.grid, dt)
+        # Calculate all forces
+        self._calculate_forces(particle_system)
         
-        # Calculate particle interactions
-        self.calculate_particle_interactions(particles)
+        # Update particles
+        self._update_particles(particle_system, dt)
         
-        # Apply field forces
-        self.apply_field_forces(particles)
-        
-        # Special physics for bonded particles
-        self.update_bonded_particles(particles)
-        
-        # Integrate motion
-        self.integrate_motion(particles, dt)
-        
-        # Run bond detection if initialized
+        # Detect and maintain bonds
         if self.bond_detector:
             self.bond_detector.update()
+            
+    def _calculate_forces(self, particle_system):
+        """Calculate all forces on particles"""
+        num_particles = len(particle_system.particles)
+        
+        # Reset all forces
+        for i in range(num_particles):
+            particle_system.particles[i].force = np.zeros(3)
+            particle_system.particles[i].torque = np.zeros(3)
+        
+        # Calculate particle-particle interactions
+        for i in range(num_particles):
+            p1 = particle_system.particles[i]
+            
+            # Apply memory field force
+            memory_force = self.dwarf_math.calculate_memory_field_force(p1, self.grid)
+            p1.force += memory_force
+            
+            # Apply memory field torque - affects spin dynamics
+            memory_torque = self.dwarf_math.calculate_memory_torque(p1, self.grid)
+            p1.torque += memory_torque
+            
+            # Calculate forces between particles
+            for j in range(i+1, num_particles):
+                p2 = particle_system.particles[j]
+                
+                # Calculate core DWARF force between particles
+                force = self.dwarf_math.calculate_force(p1, p2)
+                
+                # Apply force to both particles (Newton's third law)
+                p1.force += force
+                p2.force -= force
+                
+                # Calculate spin-coupling torque
+                # This creates spin-orbit coupling effects
+                r_vec = p2.position - p1.position
+                r = np.linalg.norm(r_vec)
+                
+                if r > 1e-10:
+                    r_hat = r_vec / r
+                    
+                    # Spin-coupling strength decreases with distance
+                    coupling_strength = 0.01 / (r * r)
+                    
+                    # Torque tries to align spins with each other
+                    # and with orbital angular momentum
+                    torque1 = coupling_strength * np.cross(p1.spin, p2.spin)
+                    torque2 = coupling_strength * np.cross(p1.spin, r_hat)
+                    
+                    p1.torque += torque1 + torque2
+                    p2.torque -= torque1
+                    p2.torque += coupling_strength * np.cross(p2.spin, r_hat)
+        
+        # Apply bond forces - bonds act like springs
+        if hasattr(particle_system, 'bonds'):
+            for bond in particle_system.bonds:
+                p1, p2 = bond
+                
+                # Bond spring force
+                r_vec = p2.position - p1.position
+                r = np.linalg.norm(r_vec)
+                
+                # Determine equilibrium distance based on particle types
+                if p1.particle_type == 'proton' and p2.particle_type == 'electron':
+                    # Hydrogen-like bond - equilibrium at 0.5 Bohr radius
+                    r0 = 0.5
+                else:
+                    # Other bonds - equilibrium at 0.8
+                    r0 = 0.8
+                    
+                # Hooke's law spring force
+                k = 0.5  # Spring constant
+                spring_force = k * (r - r0) * r_vec / r
+                
+                # Apply to both particles
+                p1.force += spring_force
+                p2.force -= spring_force
+    
+    def _update_particles(self, particle_system, dt):
+        """Update particle positions and velocities"""
+        for particle in particle_system.particles:
+            # Apply force to update velocity
+            acceleration = particle.force / particle.mass
+            particle.velocity += acceleration * dt
+            
+            # Apply drag force - simplifies the simulation
+            particle.velocity *= (1.0 - 0.01 * dt)
+            
+            # Apply damping to spin
+            particle.spin *= (1.0 - 0.005 * dt)
+            
+            # Apply torque to update spin
+            # Precession and nutation of spin vector
+            spin_change = np.cross(particle.spin, particle.torque) * dt
+            particle.spin += spin_change
+            
+            # Renormalize spin vector (maintain unit length)
+            spin_magnitude = np.linalg.norm(particle.spin)
+            if spin_magnitude > 1e-10:
+                particle.spin = particle.spin / spin_magnitude
+            
+            # Update position with velocity
+            particle.position += particle.velocity * dt
+            
+            # Apply position constraints - keep in simulation bounds
+            grid_half_size = self.grid.size / 2.0
+            for i in range(3):
+                # Bounce off boundaries with loss
+                if particle.position[i] > grid_half_size - 0.1:
+                    particle.position[i] = grid_half_size - 0.1
+                    particle.velocity[i] *= -0.8  # Energy loss on bounce
+                    
+                elif particle.position[i] < -grid_half_size + 0.1:
+                    particle.position[i] = -grid_half_size + 0.1
+                    particle.velocity[i] *= -0.8  # Energy loss on bounce
