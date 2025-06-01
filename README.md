@@ -4,6 +4,7 @@ This is a repository to keep my work safe, as I try to push my theory to the lim
 
 Current Tasks:
 Developing a particle simulator, producing emergent and stable bonds through principal behaviours no hard-coded laws. (not because they are told to, but because they want to.)
+ - Python unable to handle complexity of current simulator moving over to Julia/C++
 
 
 --------------------------------------------------------------------
