@@ -1,0 +1,5 @@
+numpy>=1.20.0
+cupy>=10.2.0  # CUDA-accelerated NumPy-compatible array library
+numba>=0.55.0  # For CUDA JIT compilation
+scipy>=1.7.0
+matplotlib>=3.4.0
