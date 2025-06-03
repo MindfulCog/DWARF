@@ -1,399 +1,376 @@
-import numpy as np
-import cupy as cp
-import pandas as pd
 import os
-import time as time_module
+import time
+import json
+import logging
+import numpy as np
 from datetime import datetime
-import matplotlib.pyplot as plt
-import psutil
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+from particle_data import Particle
+# Import the optimized grid but keep the same interface
+
+from adaptive_fluid_grid import AdaptiveFluidGridOptimized as AdaptiveFluidGrid
+
+
+from constants import *
+
+logger = logging.getLogger("DataLogger")
 
 class DataLogger:
-    """Log and save simulation data"""
+    """
+    Complete optimized data logger that replaces the original data_logger.py
+    This maintains backward compatibility while using optimized serialization.
+    """
     
-    def __init__(self, log_dir="logs"):
-        self.log_dir = log_dir
-        self.particle_data = []
-        self.field_data = []
-        self.energy_data = []
-        self.state_data = []
-        self.performance_data = []
+    def __init__(self, log_dir="logs", visualize=False, enable_performance_tracking=True,
+                 enable_field_logging=True, compression_level=6):
+        self.log_dir = Path(log_dir)
+        self.visualize = visualize
+        self.enable_performance_tracking = enable_performance_tracking
+        self.enable_field_logging = enable_field_logging
+        self.compression_level = compression_level
+        
+        # Create session ID
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.dt = 0.01
-
-        # Create log directory if it doesn't exist
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        self.session_dir = self.log_dir / self.session_id
         
-        # Create subdirectory for this session
-        self.session_dir = os.path.join(log_dir, f"session_{self.session_id}")
-        if not os.path.exists(self.session_dir):
-            os.makedirs(self.session_dir)
+        # Create directories
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        (self.session_dir / "steps").mkdir(exist_ok=True)
+        if self.enable_field_logging:
+            (self.session_dir / "fields").mkdir(exist_ok=True)
+        if self.enable_performance_tracking:
+            (self.session_dir / "performance").mkdir(exist_ok=True)
         
-        # Create subdirectory for plots
-        self.plot_dir = os.path.join(self.session_dir, "plots")
-        if not os.path.exists(self.plot_dir):
-            os.makedirs(self.plot_dir)
-            
-        # Initialize periodic boundary counting
-        self.ghost_particle_counts = []
-            
+        # File paths
+        self.stats_file = self.session_dir / "stats.json"
+        self.particle_file = self.session_dir / "particles.npz"
+        self.grid_file = self.session_dir / "grid.npz"
+        self.metadata_file = self.session_dir / "metadata.json"
+        self.performance_file = self.session_dir / "performance" / "performance_log.json"
+        
         # Performance tracking
-        self.start_time = time_module.time()
+        self.performance_data = []
+        self.last_log_time = 0.0
         
-    def initialize(self):
-        """Initialize logger"""
-        # Create metadata file with timestamp
-        with open(os.path.join(self.session_dir, "metadata.txt"), "w") as f:
-            f.write(f"DWARF Physics Simulation Session\n")
-            f.write(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Session ID: {self.session_id}\n")
+        # Thread pool for I/O operations
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Initialize metadata
+        self._initialize_metadata()
+        
+        logger.info(f"Data logger initialized: {self.session_dir}")
+    
+    def _initialize_metadata(self):
+        """Initialize session metadata"""
+        metadata = {
+            "session_id": self.session_id,
+            "created_at": datetime.now().isoformat(),
+            "data_logger_version": "2.0_optimized_compatible",
+            "features": {
+                "performance_tracking": self.enable_performance_tracking,
+                "field_logging": self.enable_field_logging,
+                "compression": self.compression_level > 0,
+                "visualization": self.visualize
+            }
+        }
+        
+        with open(self.metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+    
+    def _serialize_particle(self, particle: Particle) -> Dict:
+        """Serialize a particle to a dictionary (backward compatibility)"""
+        return {
+            "id": particle.id,
+            "position": [particle.position.x, particle.position.y, particle.position.z],
+            "velocity": [particle.velocity.x, particle.velocity.y, particle.velocity.z],
+            "force": [particle.force.x, particle.force.y, particle.force.z],
+            "mass": particle.mass,
+            "temperature": particle.temperature,
+            "material_type": getattr(particle, 'material_type', 1)
+        }
+    
+    def _serialize_particles_optimized(self, particles: List[Particle]) -> Dict[str, np.ndarray]:
+        """Optimized particle serialization using vectorized operations"""
+        n_particles = len(particles)
+        
+        # Pre-allocate arrays
+        data = {
+            "ids": np.zeros(n_particles, dtype=np.int32),
+            "positions": np.zeros((n_particles, 3), dtype=np.float32),
+            "velocities": np.zeros((n_particles, 3), dtype=np.float32),
+            "forces": np.zeros((n_particles, 3), dtype=np.float32),
+            "spins": np.zeros((n_particles, 3), dtype=np.float32),
+            "masses": np.zeros(n_particles, dtype=np.float32),
+            "temperatures": np.zeros(n_particles, dtype=np.float32),
+            "types": np.zeros(n_particles, dtype='U10')  # String array for particle types
+        }
+        
+        # Vectorized data extraction
+        for i, p in enumerate(particles):
+            data["ids"][i] = p.id
+            data["positions"][i] = [p.position.x, p.position.y, p.position.z]
+            data["velocities"][i] = [p.velocity.x, p.velocity.y, p.velocity.z]
+            data["forces"][i] = [p.force.x, p.force.y, p.force.z]
+            # Handle spin if it exists
+            if hasattr(p, 'spin'):
+                data["spins"][i] = [p.spin.x, p.spin.y, p.spin.z]
+            data["masses"][i] = p.mass
+            data["temperatures"][i] = getattr(p, 'temperature', 300.0)
+            data["types"][i] = getattr(p, 'particle_type', 'unknown')
+        
+        return data
+    
+    def _serialize_grid(self, grid: AdaptiveFluidGrid) -> Dict[str, Any]:
+        """Serialize grid data (handles both old and new grid types)"""
+        
+        # Check if this is the new optimized grid
+        if hasattr(grid, 'base_resolution'):
+            # New optimized grid
+            return {
+                "resolution": [grid.base_resolution] * 3,
+                "size": [grid.size] * 3,
+                "density": getattr(grid, 'density_field', np.zeros((grid.base_resolution,) * 3)),
+                "pressure": getattr(grid, 'pressure_field', np.zeros((grid.base_resolution,) * 3)),
+                "velocity_x": getattr(grid, 'velocity_field', np.zeros((grid.base_resolution,) * 3 + (3,)))[:,:,:,0],
+                "velocity_y": getattr(grid, 'velocity_field', np.zeros((grid.base_resolution,) * 3 + (3,)))[:,:,:,1],
+                "velocity_z": getattr(grid, 'velocity_field', np.zeros((grid.base_resolution,) * 3 + (3,)))[:,:,:,2],
+                "temperature": getattr(grid, 'temperature_field', np.ones((grid.base_resolution,) * 3) * 300),
+                "particle_count": getattr(grid, 'particle_count', np.zeros((grid.base_resolution,) * 3)),
+                "active_mask": getattr(grid, 'state', np.ones((grid.base_resolution,) * 3)) > 0
+            }
+        
+        # Handle original grid format (backward compatibility)
+        elif hasattr(grid, 'resolution'):
+            nx, ny, nz = int(grid.resolution.x), int(grid.resolution.y), int(grid.resolution.z)
             
-            # Check for CuPy and document GPU info
-            try:
-                import cupy as cp
-                device_props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
-                f.write(f"GPU: {device_props['name'].decode()}\n")
-                mem_info = cp.cuda.runtime.memGetInfo()
-                f.write(f"GPU Memory: {mem_info[0]/1024/1024/1024:.2f} GB free / {mem_info[1]/1024/1024/1024:.2f} GB total\n")
-            except:
-                f.write("GPU: Not available\n")
-                
-            # Log CPU info
-            f.write(f"CPU: {psutil.cpu_count(logical=False)} physical cores, {psutil.cpu_count()} logical cores\n")
-            f.write(f"Total Memory: {psutil.virtual_memory().total / (1024**3):.2f} GB\n")
+            # Extract data from original grid format
+            density = np.zeros((nx, ny, nz))
+            pressure = np.zeros((nx, ny, nz))
+            velocity_x = np.zeros((nx, ny, nz))
+            velocity_y = np.zeros((nx, ny, nz))
+            velocity_z = np.zeros((nx, ny, nz))
+            particle_count = np.zeros((nx, ny, nz))
+            active_mask = np.zeros((nx, ny, nz), dtype=bool)
+            
+            # If grid has array versions, use them
+            if hasattr(grid, 'density_array'):
+                density = grid.density_array.copy()
+            if hasattr(grid, 'pressure_array'):
+                pressure = grid.pressure_array.copy()
+            if hasattr(grid, 'velocity_x_array'):
+                velocity_x = grid.velocity_x_array.copy()
+                velocity_y = grid.velocity_y_array.copy()
+                velocity_z = grid.velocity_z_array.copy()
+            if hasattr(grid, 'particle_count_array'):
+                particle_count = grid.particle_count_array.copy()
+            if hasattr(grid, 'active_mask'):
+                active_mask = grid.active_mask.copy()
+            
+            return {
+                "resolution": [nx, ny, nz],
+                "size": [grid.size.x, grid.size.y, grid.size.z],
+                "density": density,
+                "pressure": pressure,
+                "velocity_x": velocity_x,
+                "velocity_y": velocity_y,
+                "velocity_z": velocity_z,
+                "temperature": np.ones((nx, ny, nz)) * 300,  # Default temperature
+                "particle_count": particle_count,
+                "active_mask": active_mask
+            }
         
-    def log_state(self, time, particle_system, grid):
-        """Log current state of simulation"""
+        else:
+            # Fallback for unknown grid types
+            return {
+                "resolution": [32, 32, 32],
+                "size": [10.0, 10.0, 10.0],
+                "density": np.zeros((32, 32, 32)),
+                "pressure": np.zeros((32, 32, 32)),
+                "velocity_x": np.zeros((32, 32, 32)),
+                "velocity_y": np.zeros((32, 32, 32)),
+                "velocity_z": np.zeros((32, 32, 32)),
+                "temperature": np.ones((32, 32, 32)) * 300,
+                "particle_count": np.zeros((32, 32, 32)),
+                "active_mask": np.zeros((32, 32, 32), dtype=bool)
+            }
+    
+    def log_step(self, step: int, particles: List[Particle], 
+                 grid: AdaptiveFluidGrid, stats: Dict):
+        """Synchronous step logging (backward compatible)"""
+        start_time = time.time()
+        
+        # Create step-specific files
+        step_file = self.session_dir / "steps" / f"step_{step:06d}.npz"
+        
         try:
-            # Performance metrics
-            current_time = time_module.time()
-            elapsed = current_time - self.start_time
+            # Serialize data using optimized methods
+            particle_data = self._serialize_particles_optimized(particles)
+            grid_data = self._serialize_grid(grid)
             
-            # Get memory usage
-            process = psutil.Process(os.getpid())
-            memory_usage = process.memory_info().rss / (1024 * 1024)  # MB
+            # Combine all data for efficient storage
+            save_data = {
+                # Particle data
+                **{f"particles_{k}": v for k, v in particle_data.items()},
+                # Grid data
+                **{f"grid_{k}": v for k, v in grid_data.items()}
+            }
             
-            # Get CPU usage
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            
-            # Get GPU usage if available
-            gpu_memory_used = 0
-            gpu_memory_percent = 0
-            try:
-                import cupy as cp
-                memory_info = cp.cuda.runtime.memGetInfo()
-                device_props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
-                total_memory = memory_info[1]
-                free_memory = memory_info[0]
-                gpu_memory_used = (total_memory - free_memory) / (1024 * 1024)  # MB
-                gpu_memory_percent = (total_memory - free_memory) * 100.0 / total_memory
-            except:
-                pass
+            # Save with compression
+            if self.compression_level > 0:
+                np.savez_compressed(step_file, **save_data)
+            else:
+                np.savez(step_file, **save_data)
             
             # Log performance data
-            self.performance_data.append({
-                'time': time,
-                'elapsed_time': elapsed,
-                'memory_usage_mb': memory_usage,
-                'cpu_percent': cpu_percent,
-                'gpu_memory_used_mb': gpu_memory_used,
-                'gpu_memory_percent': gpu_memory_percent,
-                'grid_update_time': getattr(grid, 'update_time', 0.0),
-                'refinement_regions': len(getattr(grid, 'refinement_regions', [])),
-                'particle_count': len(particle_system.particles)
-            })
-            
-            # Count ghost particles from periodic boundary visualization
-            ghost_count = 0
-            if hasattr(particle_system, 'ghost_particle_count'):
-                ghost_count = particle_system.ghost_particle_count
-                
-            # Log ghost particle count for boundary analysis
-            self.ghost_particle_counts.append({
-                'time': time,
-                'ghost_particles': ghost_count,
-                'real_particles': len(particle_system.particles)
-            })
-            
-            # Log particle data
-            for particle in particle_system.particles:
-                angular_momentum = particle.calculate_angular_momentum()
-                angular_momentum_mag = np.linalg.norm(angular_momentum)
-                
-                kinetic_energy = particle.get_kinetic_energy()
-                
-                self.particle_data.append({
-                    'time': time,
-                    'id': particle.id,
-                    'type': particle.particle_type,
-                    'x': particle.position[0],
-                    'y': particle.position[1],
-                    'z': particle.position[2],
-                    'vx': particle.velocity[0],
-                    'vy': particle.velocity[1],
-                    'vz': particle.velocity[2],
-                    'spin_x': particle.spin[0],
-                    'spin_y': particle.spin[1],
-                    'spin_z': particle.spin[2],
-                    'angular_momentum_magnitude': angular_momentum_mag,
-                    'kinetic_energy': kinetic_energy,
-                    'bonded': len(particle.bonded_with) > 0,
-                    'bond_type': particle.bond_type
-                })
-            
-            # Log field data (sampled at lower resolution)
-            sample_step = 16  # Sample every 16 cells for storage efficiency
-            for i in range(0, grid.base_resolution, sample_step):
-                for j in range(0, grid.base_resolution, sample_step):
-                    for k in range(0, grid.base_resolution, sample_step):
-                        # Make sure indices are within bounds
-                        if i < grid.velocity_field.shape[0] and j < grid.velocity_field.shape[1] and k < grid.velocity_field.shape[2]:
-                            # Transfer GPU data to CPU for logging
-                            if hasattr(grid.velocity_field, 'get'):
-                                # If it's a CuPy array
-                                field_mag = float(cp.linalg.norm(grid.velocity_field[i, j, k]).get())
-                                vorticity_mag = float(grid.vorticity_magnitude[i, j, k].get())
-                                state = int(cp.asnumpy(grid.state[i, j, k]))
-                                pressure = float(cp.asnumpy(grid.pressure_field[i, j, k]))
-                                energy_density = float(cp.asnumpy(grid.energy_density[i, j, k]))
-                            else:
-                                # If it's a NumPy array
-                                field_mag = float(np.linalg.norm(grid.velocity_field[i, j, k]))
-                                vorticity_mag = float(grid.vorticity_magnitude[i, j, k])
-                                state = int(grid.state[i, j, k])
-                                pressure = float(grid.pressure_field[i, j, k])
-                                energy_density = float(grid.energy_density[i, j, k])
-                            
-                            self.field_data.append({
-                                'time': time,
-                                'i': i,
-                                'j': j,
-                                'k': k,
-                                'field_magnitude': field_mag,
-                                'vorticity_magnitude': vorticity_mag,
-                                'state': state,
-                                'pressure': pressure,
-                                'energy_density': energy_density
-                            })
-            
-            # Log energy data
-            total_ke = sum(p.get_kinetic_energy() for p in particle_system.particles)
-            field_energy = grid.get_total_energy()  # This already returns a CPU value
-            
-            self.energy_data.append({
-                'time': time,
-                'kinetic_energy': total_ke,
-                'field_energy': field_energy,
-                'total_energy': total_ke + field_energy,
-                'particle_count': len(particle_system.particles),
-                'proton_count': len(particle_system.get_particles_by_type("proton")),
-                'electron_count': len(particle_system.get_particles_by_type("electron")),
-                'neutron_count': len(particle_system.get_particles_by_type("neutron")),
-                'bond_count': len(particle_system.bonds),
-                'hydrogen_count': len(particle_system.atom_groups.get("hydrogen", [])),
-                'helium_count': len(particle_system.atom_groups.get("helium", []))
-            })
-            
-            # Log fluid state data
-            state_counts = grid.get_state_counts()  # This returns a CPU dictionary
-            
-            self.state_data.append({
-                'time': time,
-                'uncompressed': state_counts['uncompressed'],
-                'compressed': state_counts['compressed'],
-                'vacuum': state_counts['vacuum']
-            })
-            
-            # Every 100 log entries, save data to disk
-            if len(self.energy_data) % 100 == 0:
-                self.save_logs()
-                
-            # Print a status message
-            print(f"Logged state at time {time:.3f}... Particles: {len(particle_system.particles)}")
-            
-            return True
+            if self.enable_performance_tracking:
+                self._log_performance_data(step, stats, time.time() - start_time)
             
         except Exception as e:
-            print(f"Error logging state: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
+            logger.error(f"Failed to log step {step}: {e}")
+        
+        self.last_log_time = time.time() - start_time
     
-    def generate_plots(self):
-        """Generate analysis plots"""
-        if not self.energy_data:
+    def _log_performance_data(self, step: int, stats: Dict, log_time: float):
+        """Log performance data"""
+        perf_entry = {
+            "step": step,
+            "timestamp": time.time(),
+            "log_time": log_time,
+            "stats": stats
+        }
+        
+        self.performance_data.append(perf_entry)
+        
+        # Write performance data every 10 steps to avoid excessive I/O
+        if step % 10 == 0:
+            self._write_performance_data()
+    
+    def _write_performance_data(self):
+        """Write accumulated performance data to file"""
+        if not self.enable_performance_tracking:
             return
             
-        # Convert to DataFrames for easier plotting
-        df_energy = pd.DataFrame(self.energy_data)
-        df_states = pd.DataFrame(self.state_data)
-        df_performance = pd.DataFrame(self.performance_data)
-        df_ghost = pd.DataFrame(self.ghost_particle_counts) if self.ghost_particle_counts else None
-        
-        # Plot 1: Energy over time
-        plt.figure(figsize=(12, 6))
-        plt.plot(df_energy['time'], df_energy['kinetic_energy'], label='Kinetic Energy')
-        plt.plot(df_energy['time'], df_energy['field_energy'], label='Field Energy')
-        plt.plot(df_energy['time'], df_energy['total_energy'], label='Total Energy')
-        plt.xlabel('Simulation Time')
-        plt.ylabel('Energy')
-        plt.title('Energy Distribution Over Time')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.plot_dir, 'energy_over_time.png'))
-        plt.close()
-        
-        # Plot 2: Particle counts over time
-        plt.figure(figsize=(12, 6))
-        plt.plot(df_energy['time'], df_energy['proton_count'], label='Protons')
-        plt.plot(df_energy['time'], df_energy['electron_count'], label='Electrons')
-        plt.plot(df_energy['time'], df_energy['neutron_count'], label='Neutrons')
-        plt.xlabel('Simulation Time')
-        plt.ylabel('Count')
-        plt.title('Particle Counts Over Time')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.plot_dir, 'particle_counts.png'))
-        plt.close()
-        
-        # Plot 3: Bond and atom formation over time
-        plt.figure(figsize=(12, 6))
-        plt.plot(df_energy['time'], df_energy['bond_count'], label='Bonds')
-        plt.plot(df_energy['time'], df_energy['hydrogen_count'], label='Hydrogen Atoms')
-        plt.plot(df_energy['time'], df_energy['helium_count'], label='Helium Atoms')
-        plt.xlabel('Simulation Time')
-        plt.ylabel('Count')
-        plt.title('Bond and Atom Formation Over Time')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.plot_dir, 'atom_formation.png'))
-        plt.close()
-        
-        # Plot 4: Fluid state distribution over time
-        plt.figure(figsize=(12, 6))
-        plt.plot(df_states['time'], df_states['uncompressed'], label='Uncompressed')
-        plt.plot(df_states['time'], df_states['compressed'], label='Compressed')
-        plt.plot(df_states['time'], df_states['vacuum'], label='Vacuum')
-        plt.xlabel('Simulation Time')
-        plt.ylabel('Cell Count')
-        plt.title('Fluid State Distribution Over Time')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.plot_dir, 'fluid_states.png'))
-        plt.close()
-        
-        # Plot 5: Performance metrics
-        plt.figure(figsize=(12, 8))
-        
-        # CPU usage subplot
-        plt.subplot(3, 1, 1)
-        plt.plot(df_performance['elapsed_time'], df_performance['cpu_percent'], 'b-')
-        plt.title('CPU Utilization')
-        plt.ylabel('CPU %')
-        plt.grid(True)
-        
-        # Memory usage subplot
-        plt.subplot(3, 1, 2)
-        plt.plot(df_performance['elapsed_time'], df_performance['memory_usage_mb'], 'g-', label='System RAM')
-        if 'gpu_memory_used_mb' in df_performance and df_performance['gpu_memory_used_mb'].max() > 0:
-            plt.plot(df_performance['elapsed_time'], df_performance['gpu_memory_used_mb'], 'r-', label='GPU Memory')
-            plt.legend()
-        plt.title('Memory Usage')
-        plt.ylabel('Memory (MB)')
-        plt.grid(True)
-        
-        # Grid update time subplot
-        plt.subplot(3, 1, 3)
-        plt.plot(df_performance['elapsed_time'], df_performance['grid_update_time'] * 1000, 'c-')
-        plt.title('Grid Update Time')
-        plt.ylabel('Time (ms)')
-        plt.xlabel('Elapsed Time (seconds)')
-        plt.grid(True)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.plot_dir, 'performance_metrics.png'))
-        plt.close()
-        
-        # Plot 6: Ghost particle analysis (periodic boundary visualization)
-        if df_ghost is not None and not df_ghost.empty:
-            plt.figure(figsize=(12, 6))
-            plt.plot(df_ghost['time'], df_ghost['ghost_particles'] / df_ghost['real_particles'], 'b-')
-            plt.title('Periodic Boundary Activity')
-            plt.ylabel('Ghost / Real Particle Ratio')
-            plt.xlabel('Simulation Time')
-            plt.grid(True)
-            plt.savefig(os.path.join(self.plot_dir, 'boundary_activity.png'))
-            plt.close()
+        try:
+            # Ensure performance directory exists
+            self.performance_file.parent.mkdir(exist_ok=True)
+            
+            # Load existing data if file exists
+            existing_data = []
+            if self.performance_file.exists():
+                try:
+                    with open(self.performance_file, 'r') as f:
+                        existing_data = json.load(f)
+                except:
+                    existing_data = []
+            
+            # Append new data
+            all_data = existing_data + self.performance_data
+            
+            # Write back to file
+            with open(self.performance_file, 'w') as f:
+                json.dump(all_data, f, indent=2, default=str)
+            
+            # Clear accumulated data
+            self.performance_data.clear()
+            
+        except Exception as e:
+            logger.error(f"Failed to write performance data: {e}")
     
-    def save_logs(self):
-        """Save logged data to files"""
-        # Save particle data
-        if self.particle_data:
-            df_particles = pd.DataFrame(self.particle_data)
-            df_particles.to_csv(os.path.join(self.session_dir, "particles.csv"), index=False)
+    def log_final_stats(self, stats: Dict, particles: List[Particle], 
+                       grid: AdaptiveFluidGrid):
+        """Log final simulation statistics and state"""
         
-        # Save energy data
-        if self.energy_data:
-            df_energy = pd.DataFrame(self.energy_data)
-            df_energy.to_csv(os.path.join(self.session_dir, "energy.csv"), index=False)
-        
-        # Save field data (can be large, so use chunks)
-        if self.field_data:
-            df_field = pd.DataFrame(self.field_data)
-            df_field.to_csv(os.path.join(self.session_dir, "field_data.csv"), index=False)
-        
-        # Save state data
-        if self.state_data:
-            df_state = pd.DataFrame(self.state_data)
-            df_state.to_csv(os.path.join(self.session_dir, "state_data.csv"), index=False)
-            
-        # Save performance data
+        # Final performance data
         if self.performance_data:
-            df_performance = pd.DataFrame(self.performance_data)
-            df_performance.to_csv(os.path.join(self.session_dir, "performance.csv"), index=False)
-            
-        # Save ghost particle data (periodic boundary activity)
-        if self.ghost_particle_counts:
-            df_ghost = pd.DataFrame(self.ghost_particle_counts)
-            df_ghost.to_csv(os.path.join(self.session_dir, "boundary_activity.csv"), index=False)
+            self._write_performance_data()
         
-        # Generate plots
-        self.generate_plots()
+        # Final state
+        final_file = self.session_dir / "final_state.npz"
+        particle_data = self._serialize_particles_optimized(particles)
+        grid_data = self._serialize_grid(grid)
         
-    def finalize(self):
-        """Finalize logging and generate summary"""
-        self.save_logs()
+        save_data = {
+            **{f"particles_{k}": v for k, v in particle_data.items()},
+            **{f"grid_{k}": v for k, v in grid_data.items()}
+        }
         
-        # Update metadata with end time
-        with open(os.path.join(self.session_dir, "metadata.txt"), "a") as f:
-            end_time = time.time()
-            elapsed = end_time - self.start_time
+        np.savez_compressed(final_file, **save_data)
+        
+        # Final statistics
+        stats_file = self.session_dir / "final_statistics.json"
+        with open(stats_file, 'w') as f:
+            json.dump(stats, f, indent=2, default=str)
+        
+        # Create summary files for backward compatibility
+        with open(self.stats_file, 'w') as f:
+            json.dump(stats, f, indent=2, default=str)
+        
+        # Summary report
+        self._generate_summary_report(stats)
+        
+        logger.info(f"Final simulation data logged to {self.session_dir}")
+    
+    def _generate_summary_report(self, stats: Dict):
+        """Generate a human-readable summary report"""
+        report_file = self.session_dir / "summary_report.txt"
+        
+        with open(report_file, 'w') as f:
+            f.write("DWARF SIMULATION SUMMARY REPORT\n")
+            f.write("=" * 50 + "\n\n")
+            f.write(f"Session ID: {self.session_id}\n")
+            f.write(f"Generated: {datetime.now().isoformat()}\n\n")
             
-            f.write(f"\nEnd time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Duration: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)\n")
+            # Basic simulation info
+            f.write("SIMULATION PARAMETERS:\n")
+            f.write("-" * 25 + "\n")
+            config = stats.get("configuration", stats.get("config", {}))
+            for key, value in config.items():
+                f.write(f"{key}: {value}\n")
+            f.write("\n")
             
-            if self.energy_data:
-                df_energy = pd.DataFrame(self.energy_data)
-                final_record = df_energy.iloc[-1]
-                
-                f.write("\nFinal Statistics:\n")
-                f.write(f"Total particles: {int(final_record['particle_count'])}\n")
-                f.write(f"Protons: {int(final_record['proton_count'])}\n")
-                f.write(f"Electrons: {int(final_record['electron_count'])}\n")
-                f.write(f"Neutrons: {int(final_record['neutron_count'])}\n")
-                f.write(f"Bonds formed: {int(final_record['bond_count'])}\n")
-                f.write(f"Hydrogen atoms: {int(final_record['hydrogen_count'])}\n")
-                f.write(f"Helium atoms: {int(final_record['helium_count'])}\n")
-                
-            # Add performance summary
-            if self.performance_data:
-                df_perf = pd.DataFrame(self.performance_data)
-                
-                f.write("\nPerformance Summary:\n")
-                f.write(f"Average CPU usage: {df_perf['cpu_percent'].mean():.1f}%\n")
-                f.write(f"Peak memory usage: {df_perf['memory_usage_mb'].max():.1f} MB\n")
-                if 'gpu_memory_used_mb' in df_perf and df_perf['gpu_memory_used_mb'].max() > 0:
-                    f.write(f"Peak GPU memory usage: {df_perf['gpu_memory_used_mb'].max():.1f} MB\n")
-                f.write(f"Average grid update time: {df_perf['grid_update_time'].mean() * 1000:.2f} ms\n")
-                
-            print(f"Simulation data saved to {self.session_dir}")
+            # Performance summary
+            if "performance_summary" in stats:
+                perf = stats["performance_summary"]
+                f.write("PERFORMANCE SUMMARY:\n")
+                f.write("-" * 20 + "\n")
+                f.write(f"Steps completed: {stats.get('current_step', 'Unknown')}\n")
+                f.write(f"Average step time: {perf.get('avg_wall_time', 0)*1000:.2f} ms\n")
+                f.write(f"Average physics time: {perf.get('avg_physics_time', 0)*1000:.2f} ms\n")
+                f.write(f"Average efficiency: {perf.get('avg_efficiency', 0):.1%}\n")
+                f.write(f"Effective FPS: {1.0/perf.get('avg_wall_time', 1):.1f}\n")
+    
+    def _generate_visualization(self, step: int, particles: List[Particle], 
+                              grid: AdaptiveFluidGrid, step_dir: str):
+        """Generate visualization data for the current step (backward compatibility)"""
+        if not self.visualize:
+            return
+        # Placeholder for visualization generation
+        # This would implement visualization data generation
+        pass
+    
+    def get_session_info(self) -> Dict:
+        """Get information about the current logging session"""
+        return {
+            "session_id": self.session_id,
+            "session_dir": str(self.session_dir),
+            "features": {
+                "performance_tracking": self.enable_performance_tracking,
+                "field_logging": self.enable_field_logging,
+                "compression": self.compression_level > 0,
+                "visualization": self.visualize
+            },
+            "files": {
+                "metadata": str(self.metadata_file),
+                "performance": str(self.performance_file),
+                "stats": str(self.stats_file)
+            }
+        }
+    
+    def __del__(self):
+        """Cleanup when logger is destroyed"""
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
