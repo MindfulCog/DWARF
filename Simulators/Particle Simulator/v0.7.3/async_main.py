@@ -18,8 +18,14 @@ from visualizer_3d import Visualizer3D
 # Import async simulator
 from async_dwarf_sim import AsyncSimulator
 
+
 class dwarf_simulator:
     """Main simulator class for dwarf physics with async capabilities"""
+    
+    def debug_time_tracker(simulator):
+        """Print time progress information"""
+        print(f"Simulation time: {simulator.async_sim.time:.6f}, Steps: {simulator.async_sim.step_count}")
+
     
     def __init__(self, config=None):
         """Initialize simulator with optional config"""

@@ -17,10 +17,19 @@ class SimulationState:
         self.energy_density = None
         self.timestamp = 0.0
         self.step_count = 0
-
+       
+    
 class AsyncSimulator:
     """Asynchronous simulator that runs GPU computation in a separate thread"""
-    
+    def update(event):
+        if self.running:
+            # Get the latest state from the async simulator
+            latest_state = self.async_sim.get_latest_state()
+            if latest_state:
+                # Debug time
+                if self.frame_count % 10 == 0:  # Print every 60 frames
+                    print(f"Sim time: {latest_state.timestamp:.6f}, Steps: {latest_state.step_count}")
+
     def __init__(self, physics_engine, grid, particle_system, config):
         self.physics_engine = physics_engine
         self.grid = grid
@@ -358,16 +367,15 @@ class AsyncSimulator:
     def _step_simulation(self):
         """Run a single simulation step"""
         
-        # Update physics
         self.physics_engine.update(self.particle_system, self.config['time_step'])
         
         # Update grid with the latest particle state
         self.grid.update(self.particle_system.particles, self.config['time_step'])
         
         # Update simulation state
-        self.step_count += 1
         self.time += self.config['time_step']
-    
+        self.step_count += 1
+
     def _transfer_loop(self):
         """Transfer data from GPU to CPU in a separate thread"""
         print("Transfer thread started")

@@ -2,7 +2,7 @@ import numpy as np
 import cupy as cp
 import pandas as pd
 import os
-import time
+import time as time_module
 from datetime import datetime
 import matplotlib.pyplot as plt
 import psutil
@@ -18,7 +18,8 @@ class DataLogger:
         self.state_data = []
         self.performance_data = []
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+        self.dt = 0.01
+
         # Create log directory if it doesn't exist
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -37,7 +38,7 @@ class DataLogger:
         self.ghost_particle_counts = []
             
         # Performance tracking
-        self.start_time = time.time()
+        self.start_time = time_module.time()
         
     def initialize(self):
         """Initialize logger"""
@@ -65,7 +66,7 @@ class DataLogger:
         """Log current state of simulation"""
         try:
             # Performance metrics
-            current_time = time.time()
+            current_time = time_module.time()
             elapsed = current_time - self.start_time
             
             # Get memory usage
