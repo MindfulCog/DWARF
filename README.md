@@ -7,6 +7,12 @@ Currently Working on getting the particle simulator running
  - Working on an optimization fix, issue with cpu>gpu pipeline, current fix keeps breaking.
 
 -------------------------------------------------------------------
+New discovery made through simulations
 
+I am currently calling it 6-DWAR-F (6 Dimensional Wake Accretion in Relativistic Fluids) this framework proposes that space
+behaves as a structured quantum fluid whose viscosity, memory, compressibility, and higher-dimensional
+coupling vary across gravitational regimes. We present here the first parameterization of this cosmic fluid
+based on observationally derived quantities across three regimes: Toroidal Vacuum, Uncompressed Space,
+and Compressed Space.
 -------------------------------------------------------------------
 -------------------------------------------------------------------
